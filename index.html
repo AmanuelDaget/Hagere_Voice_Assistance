@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="am">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <meta name="theme-color" content="#0a1628" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>ሀገሬ ቮይስ · Hagere Voice</title>
+  <link rel="manifest" href="/manifest.json" />
+
+  <style>
+    /* ── RESET & BASE ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --gold: #c9a84c;
+      --gold-light: #e8c96a;
+      --dark: #0a1628;
+      --dark2: #111f35;
+      --dark3: #1a2e4a;
+      --card: #162238;
+      --text: #e8e8e8;
+      --text-dim: #8899aa;
+      --success: #2ecc71;
+      --error: #e74c3c;
+      --processing: #3498db;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--dark);
+      color: var(--text);
+      min-height: 100vh;
+      padding-bottom: 2rem;
+    }
+
+    /* ── HEADER ── */
+    header {
+      background: var(--dark2);
+      border-bottom: 2px solid var(--gold);
+      padding: 1rem 1.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .logo {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .logo-main {
+      font-size: 1.3rem;
+      font-weight: 800;
+      color: var(--gold);
+      letter-spacing: -0.5px;
+    }
+
+    .logo-sub {
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      letter-spacing: 1px;
+    }
+
+    /* ── SUMMARY CARDS ── */
+    .summary-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+      padding: 1rem 1rem 0;
+    }
+
+    .summary-card {
+      background: var(--card);
+      border: 1px solid var(--dark3);
+      border-radius: 12px;
+      padding: 0.9rem 1rem;
+    }
+
+    .summary-card.featured {
+      border-color: var(--gold);
+    }
+
+    .summary-label {
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 0.3rem;
+    }
+
+    .summary-value {
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: var(--gold);
+    }
+
+    .summary-sub {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      margin-top: 0.15rem;
+    }
+
+    /* ── MIC SECTION ── */
+    .mic-section {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 1.5rem 1rem 1rem;
+      gap: 1rem;
+    }
+
+    .mic-btn {
+      width: 110px;
+      height: 110px;
+      border-radius: 50%;
+      border: none;
+      background: linear-gradient(135deg, var(--gold), var(--gold-light));
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.3rem;
+      box-shadow: 0 0 0 0 rgba(201, 168, 76, 0.4);
+      transition: transform 0.15s ease, box-shadow 0.3s ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .mic-btn:active { transform: scale(0.93); }
+
+    .mic-btn.recording {
+      animation: pulse 1.4s infinite;
+      background: linear-gradient(135deg, #e74c3c, #ff6b6b);
+    }
+
+    @keyframes pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.5); }
+      70%  { box-shadow: 0 0 0 22px rgba(231, 76, 60, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); }
+    }
+
+    .mic-icon {
+      font-size: 2.2rem;
+      line-height: 1;
+    }
+
+    #mic-btn-text {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--dark);
+      letter-spacing: 0.5px;
+    }
+
+    /* ── TRANSCRIPTION BOX ── */
+    .transcription-box {
+      width: 100%;
+      max-width: 420px;
+      min-height: 52px;
+      background: var(--card);
+      border: 1px solid var(--dark3);
+      border-radius: 12px;
+      padding: 0.85rem 1rem;
+      font-size: 1.05rem;
+      color: var(--text);
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    .transcription-box:empty::before {
+      content: 'የሽያጭ ዜና ይናገሩ...';
+      color: var(--text-dim);
+      font-size: 0.9rem;
+    }
+
+    /* ── STATUS MESSAGE ── */
+    .status-msg {
+      width: 100%;
+      max-width: 420px;
+      padding: 0.7rem 1rem;
+      border-radius: 10px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      text-align: center;
+      display: none;
+    }
+
+    .status-msg.listening   { background: #1a3a5c; color: #5dade2; border: 1px solid #2e86c1; }
+    .status-msg.processing  { background: #1a2f1a; color: #58d68d; border: 1px solid #27ae60; }
+    .status-msg.success     { background: #0e3320; color: var(--success); border: 1px solid var(--success); }
+    .status-msg.error       { background: #3b1212; color: #f1948a; border: 1px solid var(--error); }
+    .status-msg.info        { background: #1a2f3a; color: #7fb3d3; border: 1px solid #2980b9; }
+
+    /* ── AI THINKING ── */
+    #ai-thinking {
+      display: none;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--text-dim);
+      font-size: 0.8rem;
+    }
+
+    .dot-loader {
+      display: flex;
+      gap: 4px;
+    }
+
+    .dot-loader span {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--gold);
+      animation: dotBounce 1.2s infinite;
+    }
+
+    .dot-loader span:nth-child(2) { animation-delay: 0.2s; }
+    .dot-loader span:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes dotBounce {
+      0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+      40%            { transform: scale(1);   opacity: 1;   }
+    }
+
+    /* ── SECTION HEADER ── */
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.75rem 1rem 0.4rem;
+    }
+
+    .section-title {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--gold);
+    }
+
+    .delete-btn {
+      background: none;
+      border: 1px solid #e74c3c44;
+      color: #e74c3c88;
+      border-radius: 6px;
+      padding: 0.25rem 0.6rem;
+      font-size: 0.7rem;
+      cursor: pointer;
+    }
+
+    /* ── LEDGER ── */
+    #ledger-list {
+      padding: 0 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .empty-msg {
+      color: var(--text-dim);
+      text-align: center;
+      font-size: 0.85rem;
+      padding: 1.5rem;
+    }
+
+    .transaction-card {
+      background: var(--card);
+      border: 1px solid var(--dark3);
+      border-radius: 10px;
+      padding: 0.75rem 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .transaction-card.pending {
+      border-color: #e74c3c44;
+      opacity: 0.7;
+    }
+
+    .t-left {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+
+    .t-item {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .t-date {
+      font-size: 0.7rem;
+      color: var(--text-dim);
+    }
+
+    .t-badge {
+      font-size: 0.65rem;
+      background: #e74c3c22;
+      color: #f1948a;
+      border-radius: 4px;
+      padding: 0.1rem 0.4rem;
+      width: fit-content;
+    }
+
+    .t-right {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      text-align: right;
+    }
+
+    .t-qty {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+    }
+
+    .t-total {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--gold);
+    }
+
+    /* ── HINT TEXT ── */
+    .hint {
+      text-align: center;
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      padding: 0.5rem 1rem 0;
+      font-style: italic;
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- HEADER -->
+  <header>
+    <div class="logo">
+      <span class="logo-main">ሀገሬ ቮይስ</span>
+      <span class="logo-sub">HAGERE VOICE · ሀገሬ ቮይስ</span>
+    </div>
+    <span style="font-size:1.6rem">🎙️</span>
+  </header>
+
+  <!-- SUMMARY -->
+  <div class="summary-grid">
+    <div class="summary-card featured">
+      <div class="summary-label">ዛሬ · Today</div>
+      <div class="summary-value" id="today-total">0 ብር</div>
+      <div class="summary-sub" id="today-count">0 ሽያጭ</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-label">ሳምንት · Week</div>
+      <div class="summary-value" id="week-total">0 ብር</div>
+      <div class="summary-sub">ባለፈው 7 ቀን</div>
+    </div>
+  </div>
+
+  <!-- MIC SECTION -->
+  <div class="mic-section">
+
+    <button class="mic-btn idle" id="mic-btn" aria-label="Start recording">
+      <span class="mic-icon">🎤</span>
+      <span id="mic-btn-text">ተናገሩ</span>
+    </button>
+
+    <div class="transcription-box" id="transcription"></div>
+
+    <div id="ai-thinking">
+      <div class="dot-loader">
+        <span></span><span></span><span></span>
+      </div>
+      <span>AI እየተነተነ ነው...</span>
+    </div>
+
+    <div class="status-msg" id="status-msg"></div>
+
+    <p class="hint">ምሳሌ: "ዛሬ 3 ቀሚስ በ 1500 ብር ሸጥኩ"</p>
+
+  </div>
+
+  <!-- LEDGER -->
+  <div class="section-header">
+    <span class="section-title">📒 የሽያጭ መዝገብ · Sales Ledger</span>
+    <button class="delete-btn" id="delete-btn">ሁሉንም ሰርዝ</button>
+  </div>
+
+  <div id="ledger-list"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
