@@ -1,5 +1,5 @@
-// ─── CONFIG ───────────────────────────────────────────────
-const GROQ_API_KEY = '';
+// ─── CONFIG ─────────────────────────────────────────────── 
+const GROQ_API_KEY = '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';
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 // ─── STATE ────────────────────────────────────────────────
