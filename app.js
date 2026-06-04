@@ -315,7 +315,15 @@ document.addEventListener('DOMContentLoaded', () => {
   recognition = setupSpeechRecognition();
 
   // Mic button
-  document.getElementById('mic-btn').addEventListener('click', handleMicPress);
+document.getElementById('mic-btn').addEventListener('click', async () => {
+  // Explicitly request permission first
+  try {
+    await navigator.mediaDevices.getUserMedia({ audio: true });
+    handleMicPress();
+  } catch (err) {
+    showStatus('ማይክሮፎን ፈቃድ ያስፈልጋል! Microphone permission denied.', 'error');
+  }
+});
 
   // Delete button
   document.getElementById('delete-btn').addEventListener('click', deleteAllData);
