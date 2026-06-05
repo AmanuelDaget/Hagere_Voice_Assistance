@@ -85,21 +85,29 @@ async function extractTransaction(amharicText) {
   // "Processing..."
   document.getElementById('ai-thinking').style.display = 'block';
 
-  const prompt = `You are a business data extractor for Ethiopian artisans.
-Extract transaction data from this Amharic sales statement.
+  const prompt = `You are a business data extractor for Ethiopian small business owners.
+Extract sales transaction data from the following statement.
+The statement may be in Amharic, English, or a mix of both.
+The statement may be informal, incomplete, or have speech recognition errors.
 
-Rules:
-- item: the product sold (keep in Amharic script)
-- quantity: number sold (integer)
-- price: price per item in Birr (number)
-- total: quantity × price (number)
-- If any field is missing or unclear, set it to null
-- Return ONLY valid JSON, no explanation, no markdown
+Your job:
+- item: what was sold (keep original language/script)
+- quantity: how many were sold (integer, default to 1 if not mentioned)
+- price: price per unit in Birr (number)
+- total: quantity multiplied by price (number)
 
-Amharic statement: "${amharicText}"
+If quantity is not mentioned, assume 1.
+If price is not clear, look for any number in the statement.
+ALWAYS try your best to extract something — never return all nulls if there is any number in the statement.
+Return ONLY a JSON object. No explanation. No markdown. No extra text.
 
-Example input: "ዛሬ 3 ቀሚስ በ 1500 ብር ሸጥኩ"
-Example output: {"item":"ቀሚስ","quantity":3,"price":1500,"total":4500}
+Statement: "${text}"
+
+Examples:
+"ዛሬ 3 ቀሚስ በ 1500 ብር ሸጥኩ" -> {"item":"ቀሚስ","quantity":3,"price":1500,"total":4500}
+"sold 2 scarves for 800 birr each" -> {"item":"scarves","quantity":2,"price":800,"total":1600}
+"አንድ ልብስ በ500" -> {"item":"ልብስ","quantity":1,"price":500,"total":500}
+"5 bags 200" -> {"item":"bags","quantity":5,"price":200,"total":1000}
 
 JSON output:`;
 
@@ -129,11 +137,15 @@ JSON output:`;
 
     document.getElementById('ai-thinking').style.display = 'none';
 
-    if (parsed.item && parsed.quantity && parsed.price) {
-      saveTransaction(amharicText, parsed);
+    if (parsed.item || parsed.price) {
+      // Fill defaults for missing fields
+      parsed.quantity = parsed.quantity || 1;
+      parsed.price = parsed.price || 0;
+      parsed.item = parsed.item || text;
+      parsed.total = parsed.total || (parsed.quantity * parsed.price);
+      saveTransaction(text, parsed);
     } else {
-      showStatus('ሙሉ መረጃ አልተገኘም። እንደገና ይሞክሩ።', 'error');
-      // "Complete data not found. Please try again."
+      showStatus('ዋጋ ወይም ዕቃ አልተሰማም። እንደገና ይሞክሩ። (Say item and price)', 'error');
     }
 
   } catch (err) {
