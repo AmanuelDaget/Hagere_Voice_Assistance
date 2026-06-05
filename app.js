@@ -143,7 +143,21 @@ AMHARIC NUMBER CONVERSION (mandatory):
 አንድ=1, ሁለት=2, ሶስት=3, አራት=4, አምስት=5, ስድስት=6, ሰባት=7, ስምንት=8, ዘጠኝ=9
 አስር=10, ሃያ=20, ሰላሳ=30, አርባ=40, ሃምሳ=50, ስልሳ=60, ሰባ=70, ሰማንያ=80, ዘጠና=90
 መቶ=100, ሺ=1000
-Combinations: ሶስት መቶ=300, አምስት ሺ=5000, አንድ ሺ አምስት መቶ=1500, ሁለት ሺ ሁለት መቶ=2200
+
+ETHIOPIC NUMERAL CONVERSION (mandatory):
+፩=1, ፪=2, ፫=3, ፬=4, ፭=5, ፮=6, ፯=7, ፰=8, ፱=9
+፲=10, ፳=20, ፴=30, ፵=40, ፶=50, ፷=60, ፸=70, ፹=80, ፺=90
+፻=100, ፼=10000
+፪፻=200, ፫፻=300, ፬፻=400, ፭፻=500, ፮፻=600, ፯፻=700, ፰፻=800, ፱፻=900
+፲፻=1000, ፪፻፩=201, ፩ሺ፭፻=1500
+
+CRITICAL RULES FOR NUMBERS:
+- ፪፻ means 2×100 = 200 NOT 2000
+- ፫፻ means 3×100 = 300 NOT 3000
+- መቶ alone = 100, ሁለት መቶ = 200, ሶስት መቶ = 300
+- ሺ alone = 1000, ሁለት ሺ = 2000
+- If someone says "200" or "፪፻" the price is 200, not 2000
+- Never multiply by 10 extra
 
 EXTRACTION RULES:
 1. item = what was sold. If not mentioned use "ሸቀጥ"
