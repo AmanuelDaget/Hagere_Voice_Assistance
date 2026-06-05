@@ -26,18 +26,13 @@ window.addEventListener('load', () => {
 });
 
 
-// ── MIC CLICK ─────────────────────────────────────────────
+
+── MIC CLICK ─────────────────────────────────────────────
 async function handleMicClick() {
   console.log('🎤 Mic clicked, isRecording:', isRecording);
 
   if (isRecording) {
-    // Stop whichever method is active
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-      mediaRecorder.stop();
-    }
-    if (recognition) {
-      recognition.stop();
-    }
+    recognition && recognition.stop();
     return;
   }
 
@@ -53,224 +48,92 @@ async function handleMicClick() {
     return;
   }
 
-  // Use Whisper if available (all browsers), fallback to Web Speech (Chrome only)
-  if (window.MediaRecorder) {
-    console.log('🎙 Using Whisper (cross-platform)');
-    startWhisperRecording();
-  } else {
-    console.log('🎙 Using Web Speech API (Chrome fallback)');
-    startRecognition();
-  }
+  startRecognition();
 }
 
-// ── WHISPER RECORDING ─────────────────────────────────────
-async function startWhisperRecording() {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    audioChunks = [];
+// ── SPEECH RECOGNITION ────────────────────────────────────
+function startRecognition() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    showStatus('Chrome browser ይጠቀሙ።', 'error');
+    return;
+  }
 
-    // Pick best format the browser supports
-    const mimeType = ['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','audio/ogg','audio/mp4']
-      .find(t => MediaRecorder.isTypeSupported(t)) || '';
+  recognition = new SR();
+  recognition.continuous = false;
+  recognition.interimResults = true;
+  recognition.maxAlternatives = 3;
 
-    mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+  // Try Amharic first
+  recognition.lang = 'am-ET';
 
-    mediaRecorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) audioChunks.push(e.data);
-    };
-
-    mediaRecorder.onstop = async () => {
-      stream.getTracks().forEach(t => t.stop());
-      isRecording = false;
-      setMicState('idle');
-
-      const blob = new Blob(audioChunks, { type: mimeType || 'audio/webm' });
-      console.log('🎵 Audio blob:', blob.size, 'bytes');
-
-      if (blob.size < 500) {
-        showStatus('ምንም አልተሰማም። እንደገና ይሞክሩ።', 'error');
-        return;
-      }
-
-      showStatus('እየተነተነ ነው...', 'processing');
-      document.getElementById('ai-thinking').style.display = 'flex';
-
-      // Send to Whisper
-      const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'mp4' : 'webm';
-      const formData = new FormData();
-      formData.append('file', blob, `audio.${ext}`);
-      formData.append('model', 'whisper-large-v3');
-      formData.append('language', 'am');
-      formData.append('response_format', 'json');
-
-      try {
-        const res = await fetch(GROQ_WHISPER_URL, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` },
-          body: formData
-        });
-
-        console.log('📡 Whisper status:', res.status);
-
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          console.error('❌ Whisper failed:', JSON.stringify(err));
-          document.getElementById('ai-thinking').style.display = 'none';
-          // Fallback to Web Speech API
-          showStatus('Whisper failed. Trying Chrome speech...', 'info');
-          startRecognition();
-          return;
-        }
-
-        const data = await res.json();
-        const transcript = data.text && data.text.trim();
-        console.log('📝 Whisper transcript:', transcript);
-        document.getElementById('ai-thinking').style.display = 'none';
-
-        if (!transcript) {
-          showStatus('ምንም አልተሰማም። እንደገና ይሞክሩ።', 'error');
-          return;
-        }
-
-        document.getElementById('transcription').textContent = transcript;
-        await extractTransaction(transcript);
-
-      } catch (err) {
-        document.getElementById('ai-thinking').style.display = 'none';
-        console.error('❌ Whisper error:', err);
-        showStatus('Network error. Trying Chrome speech...', 'info');
-        startRecognition(); // fallback
-      }
-    };
-
-    // Start recording — auto stop after 8 seconds
-    mediaRecorder.start(100);
+  recognition.onstart = () => {
+    console.log('🎙 Listening...');
     isRecording = true;
     setMicState('recording');
-    showStatus('እያዳመጥኩ ነው... (8 ሰከንድ)', 'listening');
+    showStatus('እያዳመጥኩ ነው...', 'listening');
+  };
 
-    setTimeout(() => {
-      if (isRecording && mediaRecorder && mediaRecorder.state !== 'inactive') {
-        console.log('⏰ Auto-stop after 8s');
-        mediaRecorder.stop();
-      }
-    }, 8000);
+  recognition.onresult = (event) => {
+    let interim = '';
+    let final = '';
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const t = event.results[i][0].transcript;
+      event.results[i].isFinal ? (final += t) : (interim += t);
+    }
+    const display = final || interim;
+    console.log('📝 Heard:', display);
+    document.getElementById('transcription').textContent = display;
+    if (final) document.getElementById('transcription').dataset.final = final;
+  };
 
-  } catch (err) {
-    console.error('❌ Recording error:', err);
-    showStatus('Error: ' + err.message, 'error');
+  recognition.onerror = (event) => {
+    console.error('❌ Speech error:', event.error);
     isRecording = false;
     setMicState('idle');
+
+    if (event.error === 'language-not-supported') {
+      console.log('🔄 Amharic not supported, retrying without lang...');
+      recognition.lang = '';
+      setTimeout(() => {
+        try { recognition.start(); } catch(e) {}
+      }, 300);
+      return;
+    }
+
+    const msgs = {
+      'not-allowed': 'ማይክሮፎን ፈቃድ ያስፈልጋል።',
+      'no-speech': 'ምንም አልተሰማም። እንደገና ይሞክሩ።',
+      'network': 'Network error. Check internet.',
+      'audio-capture': 'Microphone not found.'
+    };
+    showStatus(msgs[event.error] || 'Error: ' + event.error, 'error');
+  };
+
+  recognition.onend = () => {
+    console.log('⏹ Recognition ended');
+    isRecording = false;
+    setMicState('idle');
+
+    const finalText = document.getElementById('transcription').dataset.final
+      || document.getElementById('transcription').textContent;
+
+    console.log('📄 Final text to process:', finalText);
+
+    if (finalText && finalText.trim().length > 0) {
+      extractTransaction(finalText.trim());
+    } else {
+      showStatus('ምንም አልተሰማም። እንደገና ይሞክሩ።', 'error');
+    }
+  };
+
+  try {
+    recognition.start();
+  } catch (e) {
+    console.error('Failed to start:', e);
+    showStatus('Failed to start mic: ' + e.message, 'error');
   }
 }
-
-// ── MIC CLICK ─────────────────────────────────────────────
-// async function handleMicClick() {
-//   console.log('🎤 Mic clicked, isRecording:', isRecording);
-
-//   if (isRecording) {
-//     recognition && recognition.stop();
-//     return;
-//   }
-
-//   clearInput();
-
-//   try {
-//     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-//     stream.getTracks().forEach(t => t.stop());
-//     console.log('✅ Mic permission OK');
-//   } catch (err) {
-//     console.error('❌ Mic denied:', err);
-//     showStatus('ማይክሮፎን ፈቃድ ያስፈልጋል!', 'error');
-//     return;
-//   }
-
-//   startRecognition();
-// }
-
-// // ── SPEECH RECOGNITION ────────────────────────────────────
-// function startRecognition() {
-//   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-//   if (!SR) {
-//     showStatus('Chrome browser ይጠቀሙ።', 'error');
-//     return;
-//   }
-
-//   recognition = new SR();
-//   recognition.continuous = false;
-//   recognition.interimResults = true;
-//   recognition.maxAlternatives = 3;
-
-//   // Try Amharic first
-//   recognition.lang = 'am-ET';
-
-//   recognition.onstart = () => {
-//     console.log('🎙 Listening...');
-//     isRecording = true;
-//     setMicState('recording');
-//     showStatus('እያዳመጥኩ ነው...', 'listening');
-//   };
-
-//   recognition.onresult = (event) => {
-//     let interim = '';
-//     let final = '';
-//     for (let i = event.resultIndex; i < event.results.length; i++) {
-//       const t = event.results[i][0].transcript;
-//       event.results[i].isFinal ? (final += t) : (interim += t);
-//     }
-//     const display = final || interim;
-//     console.log('📝 Heard:', display);
-//     document.getElementById('transcription').textContent = display;
-//     if (final) document.getElementById('transcription').dataset.final = final;
-//   };
-
-//   recognition.onerror = (event) => {
-//     console.error('❌ Speech error:', event.error);
-//     isRecording = false;
-//     setMicState('idle');
-
-//     if (event.error === 'language-not-supported') {
-//       console.log('🔄 Amharic not supported, retrying without lang...');
-//       recognition.lang = '';
-//       setTimeout(() => {
-//         try { recognition.start(); } catch(e) {}
-//       }, 300);
-//       return;
-//     }
-
-//     const msgs = {
-//       'not-allowed': 'ማይክሮፎን ፈቃድ ያስፈልጋል።',
-//       'no-speech': 'ምንም አልተሰማም። እንደገና ይሞክሩ።',
-//       'network': 'Network error. Check internet.',
-//       'audio-capture': 'Microphone not found.'
-//     };
-//     showStatus(msgs[event.error] || 'Error: ' + event.error, 'error');
-//   };
-
-//   recognition.onend = () => {
-//     console.log('⏹ Recognition ended');
-//     isRecording = false;
-//     setMicState('idle');
-
-//     const finalText = document.getElementById('transcription').dataset.final
-//       || document.getElementById('transcription').textContent;
-
-//     console.log('📄 Final text to process:', finalText);
-
-//     if (finalText && finalText.trim().length > 0) {
-//       extractTransaction(finalText.trim());
-//     } else {
-//       showStatus('ምንም አልተሰማም። እንደገና ይሞክሩ።', 'error');
-//     }
-//   };
-
-//   try {
-//     recognition.start();
-//   } catch (e) {
-//     console.error('Failed to start:', e);
-//     showStatus('Failed to start mic: ' + e.message, 'error');
-//   }
-// }
 
 // ── GROQ EXTRACTION ───────────────────────────────────────
 async function extractTransaction(text) {
