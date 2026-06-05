@@ -1,13 +1,15 @@
 const GROQ_API_KEY = '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';
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_WHISPER_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
 
 let isRecording = false;
-let recognition = null;
+let mediaRecorder = null;
+let audioChunks = [];
 let transactions = JSON.parse(localStorage.getItem('hv_transactions') || '[]');
 
 // ── INIT ──────────────────────────────────────────────────
 window.addEventListener('load', () => {
-  console.log('✅ app.js loaded fresh version 3.0');
+  console.log('✅ Hagere Voice v4.0 — cross-platform Whisper');
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js')
@@ -24,117 +26,170 @@ window.addEventListener('load', () => {
 
 // ── MIC CLICK ─────────────────────────────────────────────
 async function handleMicClick() {
-  console.log('🎤 Mic clicked, isRecording:', isRecording);
-
   if (isRecording) {
-    recognition && recognition.stop();
+    stopRecording();
     return;
   }
+  await startRecording();
+}
 
+// ── START RECORDING ───────────────────────────────────────
+async function startRecording() {
+  console.log('🎤 Requesting mic...');
   clearInput();
 
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    stream.getTracks().forEach(t => t.stop());
-    console.log('✅ Mic permission OK');
-  } catch (err) {
-    console.error('❌ Mic denied:', err);
-    showStatus('ማይክሮፎን ፈቃድ ያስፈልጋል!', 'error');
-    return;
-  }
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        sampleRate: 16000,
+        echoCancellation: true,
+        noiseSuppression: true
+      }
+    });
 
-  startRecognition();
-}
+    console.log('✅ Mic granted');
+    audioChunks = [];
 
-// ── SPEECH RECOGNITION ────────────────────────────────────
-function startRecognition() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) {
-    showStatus('Chrome browser ይጠቀሙ።', 'error');
-    return;
-  }
+    // Pick best supported format
+    const mimeType = getSupportedMimeType();
+    console.log('🎵 Using format:', mimeType);
 
-  recognition = new SR();
-  recognition.continuous = false;
-  recognition.interimResults = true;
-  recognition.maxAlternatives = 3;
+    mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
 
-  // Try Amharic first
-  recognition.lang = 'am-ET';
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) {
+        audioChunks.push(e.data);
+      }
+    };
 
-  recognition.onstart = () => {
-    console.log('🎙 Listening...');
+    mediaRecorder.onstop = async () => {
+      console.log('⏹ Recording stopped, chunks:', audioChunks.length);
+      stream.getTracks().forEach(t => t.stop());
+
+      if (audioChunks.length === 0) {
+        showStatus('ምንም አልተሰማም። እንደገና ይሞክሩ።', 'error');
+        return;
+      }
+
+      const audioBlob = new Blob(audioChunks, {
+        type: mimeType || 'audio/webm'
+      });
+      console.log('🎵 Audio blob size:', audioBlob.size, 'bytes');
+
+      if (audioBlob.size < 1000) {
+        showStatus('ድምጽ በጣም አጭር ነው። ረዘም ብለው ይናገሩ።', 'error');
+        return;
+      }
+
+      await transcribeWithWhisper(audioBlob, mimeType);
+    };
+
+    mediaRecorder.start(100); // collect every 100ms
     isRecording = true;
     setMicState('recording');
-    showStatus('እያዳመጥኩ ነው...', 'listening');
-  };
+    showStatus('እያዳመጥኩ ነው... (ለማቆም እንደገና ይጫኑ)', 'listening');
+    console.log('🎙 Recording started');
 
-  recognition.onresult = (event) => {
-    let interim = '';
-    let final = '';
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      const t = event.results[i][0].transcript;
-      event.results[i].isFinal ? (final += t) : (interim += t);
+  } catch (err) {
+    console.error('❌ Mic error:', err);
+    if (err.name === 'NotAllowedError') {
+      showStatus('ማይክሮፎን ፈቃድ ያስፈልጋል! Allow microphone.', 'error');
+    } else if (err.name === 'NotFoundError') {
+      showStatus('ማይክሮፎን አልተገኘም።', 'error');
+    } else {
+      showStatus('Mic error: ' + err.message, 'error');
     }
-    const display = final || interim;
-    console.log('📝 Heard:', display);
-    document.getElementById('transcription').textContent = display;
-    if (final) document.getElementById('transcription').dataset.final = final;
-  };
+  }
+}
 
-  recognition.onerror = (event) => {
-    console.error('❌ Speech error:', event.error);
+// ── STOP RECORDING ────────────────────────────────────────
+function stopRecording() {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    console.log('⏹ Stopping recording...');
+    mediaRecorder.stop();
     isRecording = false;
     setMicState('idle');
+    showStatus('እየተነተነ ነው...', 'processing');
+  }
+}
 
-    if (event.error === 'language-not-supported') {
-      console.log('🔄 Amharic not supported, retrying without lang...');
-      recognition.lang = '';
-      setTimeout(() => {
-        try { recognition.start(); } catch(e) {}
-      }, 300);
+// ── GET SUPPORTED AUDIO FORMAT ────────────────────────────
+function getSupportedMimeType() {
+  const types = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/ogg;codecs=opus',
+    'audio/ogg',
+    'audio/mp4',
+  ];
+  for (const type of types) {
+    if (MediaRecorder.isTypeSupported(type)) {
+      return type;
+    }
+  }
+  return null; // browser default
+}
+
+// ── WHISPER TRANSCRIPTION ─────────────────────────────────
+async function transcribeWithWhisper(audioBlob, mimeType) {
+  console.log('📡 Sending to Whisper...');
+  showStatus('ድምጽ እየተነተነ ነው...', 'processing');
+  document.getElementById('ai-thinking').style.display = 'flex';
+
+  // Determine file extension
+  const ext = mimeType && mimeType.includes('ogg') ? 'ogg'
+    : mimeType && mimeType.includes('mp4') ? 'mp4'
+    : 'webm';
+
+  const formData = new FormData();
+  formData.append('file', audioBlob, `audio.${ext}`);
+  formData.append('model', 'whisper-large-v3');
+  formData.append('language', 'am'); // Amharic
+  formData.append('response_format', 'json');
+
+  try {
+    const res = await fetch(GROQ_WHISPER_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${GROQ_API_KEY}`
+        // NO Content-Type here — browser sets it with boundary for FormData
+      },
+      body: formData
+    });
+
+    console.log('📡 Whisper status:', res.status);
+
+    if (!res.ok) {
+      const err = await res.json();
+      console.error('❌ Whisper error:', JSON.stringify(err));
+      throw new Error('Whisper ' + res.status + ': ' + JSON.stringify(err));
+    }
+
+    const data = await res.json();
+    const transcript = data.text && data.text.trim();
+    console.log('📝 Whisper transcript:', transcript);
+
+    document.getElementById('transcription').textContent = transcript;
+
+    if (!transcript || transcript.length === 0) {
+      document.getElementById('ai-thinking').style.display = 'none';
+      showStatus('ምንም አልተሰማም። እንደገና ይሞክሩ።', 'error');
       return;
     }
 
-    const msgs = {
-      'not-allowed': 'ማይክሮፎን ፈቃድ ያስፈልጋል።',
-      'no-speech': 'ምንም አልተሰማም። እንደገና ይሞክሩ።',
-      'network': 'Network error. Check internet.',
-      'audio-capture': 'Microphone not found.'
-    };
-    showStatus(msgs[event.error] || 'Error: ' + event.error, 'error');
-  };
+    await extractTransaction(transcript);
 
-  recognition.onend = () => {
-    console.log('⏹ Recognition ended');
-    isRecording = false;
-    setMicState('idle');
-
-    const finalText = document.getElementById('transcription').dataset.final
-      || document.getElementById('transcription').textContent;
-
-    console.log('📄 Final text to process:', finalText);
-
-    if (finalText && finalText.trim().length > 0) {
-      extractTransaction(finalText.trim());
-    } else {
-      showStatus('ምንም አልተሰማም። እንደገና ይሞክሩ።', 'error');
-    }
-  };
-
-  try {
-    recognition.start();
-  } catch (e) {
-    console.error('Failed to start:', e);
-    showStatus('Failed to start mic: ' + e.message, 'error');
+  } catch (err) {
+    document.getElementById('ai-thinking').style.display = 'none';
+    console.error('❌ Whisper failed:', err);
+    showStatus('Whisper error. Check console.', 'error');
   }
 }
 
 // ── GROQ EXTRACTION ───────────────────────────────────────
 async function extractTransaction(text) {
-  console.log('🤖 Sending to Groq:', text);
-  showStatus('AI እየተነተነ ነው...', 'processing');
-  document.getElementById('ai-thinking').style.display = 'flex';
+  console.log('🤖 Extracting from:', text);
 
   const prompt = `You are a sales data extractor for Ethiopian artisans in Gondar.
 Extract data from a sales statement. Language may be Amharic, English, or mixed.
@@ -143,49 +198,33 @@ AMHARIC NUMBER CONVERSION (mandatory):
 አንድ=1, ሁለት=2, ሶስት=3, አራት=4, አምስት=5, ስድስት=6, ሰባት=7, ስምንት=8, ዘጠኝ=9
 አስር=10, ሃያ=20, ሰላሳ=30, አርባ=40, ሃምሳ=50, ስልሳ=60, ሰባ=70, ሰማንያ=80, ዘጠና=90
 መቶ=100
-ሺ=1000, ሺህ=1000, ሽህ=1000, ሽ=1000 (all spellings of "thousand" = 1000)
-ሁለት ሺ=2000, ሁለት ሽህ=2000, ሁለት ሽ=2000
-ሶስት ሺ=3000, ሶስት ሽህ=3000
-አምስት ሺ=5000, አምስት ሽህ=5000
-አስር ሺ=10000, አስር ሽህ=10000
+ሺ=1000, ሺህ=1000, ሽህ=1000, ሽ=1000 (all spellings of thousand = 1000)
+ሁለት ሺህ=2000, ሶስት ሺህ=3000, አምስት ሺህ=5000, አስር ሺህ=10000
 
-ETHIOPIC NUMERAL CONVERSION (mandatory):
+ETHIOPIC NUMERAL CONVERSION:
 ፩=1, ፪=2, ፫=3, ፬=4, ፭=5, ፮=6, ፯=7, ፰=8, ፱=9
 ፲=10, ፳=20, ፴=30, ፵=40, ፶=50, ፷=60, ፸=70, ፹=80, ፺=90
-፻=100, ፼=10000
-፪፻=200, ፫፻=300, ፬፻=400, ፭፻=500, ፮፻=600, ፯፻=700, ፰፻=800, ፱፻=900
-፲፻=1000, ፪፻፩=201, ፩ሺ፭፻=1500
+፻=100, ፪፻=200, ፫፻=300, ፬፻=400, ፭፻=500, ፮፻=600, ፯፻=700, ፰፻=800, ፱፻=900
+፼=10000
 
-CRITICAL RULES FOR NUMBERS:
-- ፪፻ means 2×100 = 200 NOT 2000
-- ፫፻ means 3×100 = 300 NOT 3000
-- መቶ alone = 100, ሁለት መቶ = 200, ሶስት መቶ = 300
-- ሺ alone = 1000, ሁለት ሺ = 2000
-- If someone says "200" or "፪፻" the price is 200, not 2000
-- Never multiply by 10 extra
-- ሽህ, ሺህ, ሽ, ሺ all mean 1000 — they are the same word spelled differently by speech recognition
-- NEVER treat ሽህ or ሺህ as an item name — it always means 1000
-- If you see [number] + ሽህ/ሺህ/ሽ/ሺ, that is a price in thousands
+CRITICAL RULES:
+- ሽህ, ሺህ, ሽ, ሺ all mean 1000 — NEVER treat as item name
+- ፪፻ = 200 NOT 2000
+- If no item mentioned use "ሸቀጥ"
+- If no quantity mentioned use 1
+- Number before or after ብር is the price
+- ALWAYS return JSON even if guessing
 
-EXTRACTION RULES:
-1. item = what was sold. If not mentioned use "ሸቀጥ"
-2. quantity = how many. If not mentioned use 1
-3. price = price per unit in Birr. Look for number before or after "ብር"
-4. total = quantity x price
-
-IMPORTANT: Always return JSON even if guessing. Never return nulls for price if any number exists.
-
-Statement: "${text}"
-
-Examples:
+EXAMPLES:
+"አንድ ሽህ ብር" → {"item":"ሸቀጥ","quantity":1,"price":1000,"total":1000}
 "ዛሬ ሶስት መቶ ብር ሸጥኩ" → {"item":"ሸቀጥ","quantity":1,"price":300,"total":300}
 "ዛሬ 3 ቀሚስ በ 1500 ብር ሸጥኩ" → {"item":"ቀሚስ","quantity":3,"price":1500,"total":4500}
-"ሁለት ሺ ብር የሆነ አንድ ልብስ ሸጥኩ" → {"item":"ልብስ","quantity":1,"price":2000,"total":2000}
-"sold 5 scarves 300 birr each" → {"item":"scarves","quantity":5,"price":300,"total":1500}
-"አምስት መቶ ሃምሳ ብር" → {"item":"ሸቀጥ","quantity":1,"price":550,"total":550}
-"አንድ ሽህ ብር" → {"item":"ሸቀጥ","quantity":1,"price":1000,"total":1000}
 "ሁለት ሽህ ብር ሸጥኩ" → {"item":"ሸቀጥ","quantity":1,"price":2000,"total":2000}
 "አንድ ሽህ አምስት መቶ ብር" → {"item":"ሸቀጥ","quantity":1,"price":1500,"total":1500}
+"፪፻ ብር" → {"item":"ሸቀጥ","quantity":1,"price":200,"total":200}
+"sold 2 scarves 800 birr each" → {"item":"scarves","quantity":2,"price":800,"total":1600}
+
+Statement: "${text}"
 
 Return ONLY the JSON object. Nothing else.
 JSON:`;
@@ -207,8 +246,6 @@ JSON:`;
       })
     });
 
-    console.log('📡 Groq status:', res.status);
-
     if (!res.ok) {
       const err = await res.json();
       console.error('❌ Groq error:', JSON.stringify(err));
@@ -217,48 +254,34 @@ JSON:`;
 
     const data = await res.json();
     const raw = data.choices[0].message.content.trim();
-    console.log('🤖 Groq raw response:', raw);
+    console.log('🤖 Groq raw:', raw);
 
-    // Clean markdown if any
-    const cleaned = raw
-      .replace(/```json/gi, '')
-      .replace(/```/g, '')
-      .trim();
-
-    console.log('🧹 Cleaned:', cleaned);
-
+    const cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
     let parsed;
     try {
       parsed = JSON.parse(cleaned);
-    } catch (parseErr) {
-      console.error('❌ JSON parse failed:', parseErr, 'Raw was:', cleaned);
-      // Try to extract JSON from response
+    } catch (e) {
       const match = cleaned.match(/\{.*\}/s);
-      if (match) {
-        parsed = JSON.parse(match[0]);
-      } else {
-        throw new Error('Could not parse JSON from: ' + cleaned);
-      }
+      if (match) parsed = JSON.parse(match[0]);
+      else throw new Error('No JSON in: ' + cleaned);
     }
 
-    console.log('✅ Parsed result:', parsed);
+    console.log('✅ Parsed:', parsed);
     document.getElementById('ai-thinking').style.display = 'none';
 
-    // Save if we have at least a price
     if (parsed.price && parsed.price > 0) {
       parsed.quantity = parsed.quantity || 1;
       parsed.item = parsed.item || 'ሸቀጥ';
       parsed.total = parsed.total || (parsed.quantity * parsed.price);
       saveTransaction(text, parsed);
     } else {
-      console.warn('⚠️ No price found in:', parsed);
-      showStatus('ዋጋ አልተሰማም። ዋጋ ጨምረው ይናገሩ። (Include the price)', 'error');
+      showStatus('ዋጋ አልተሰማም። ዋጋ ጨምረው ይናገሩ።', 'error');
     }
 
   } catch (err) {
     document.getElementById('ai-thinking').style.display = 'none';
-    console.error('❌ Full error:', err);
-    showStatus('ስህተት ተፈጥሯል። Saved as pending.', 'error');
+    console.error('❌ Extract error:', err);
+    showStatus('ስህተት። Saved as pending.', 'error');
     saveRawTransaction(text);
   }
 }
@@ -349,7 +372,7 @@ function setMicState(state) {
   const btn = document.getElementById('mic-btn');
   const btnText = document.getElementById('mic-btn-text');
   btn.className = 'mic-btn ' + state;
-  btnText.textContent = state === 'recording' ? 'እያዳመጥኩ...' : 'ተናገሩ';
+  btnText.textContent = state === 'recording' ? 'ለማቆም ይጫኑ' : 'ተናገሩ';
   isRecording = state === 'recording';
 }
 
