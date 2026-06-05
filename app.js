@@ -132,7 +132,9 @@ async function extractTransaction(amharicText) {
 
     const data = await response.json();
     const raw = data.choices[0].message.content.trim();
-
+    console.log('🤖 Groq raw:', raw);
+    console.log('📝 Input text was:', text);
+    
     // Clean any accidental markdown
     const cleaned = raw.replace(/```json|```/g, '').trim();
     const parsed = JSON.parse(cleaned);
@@ -140,13 +142,13 @@ async function extractTransaction(amharicText) {
     document.getElementById('ai-thinking').style.display = 'none';
 
     if (parsed.price && parsed.price > 0) {
-    parsed.quantity = parsed.quantity || 1;
-    parsed.item = parsed.item || 'ሸቀጥ';
-    parsed.total = parsed.total || (parsed.quantity * parsed.price);
-    saveTransaction(text, parsed);
-  } else {
-    showStatus('ዋጋ አልተሰማም። ዋጋ ይጥቀሱ። (Say the price)', 'error');
-  }
+      parsed.quantity = parsed.quantity || 1;
+      parsed.item = parsed.item || 'ሸቀጥ';
+      parsed.total = parsed.total || (parsed.quantity * parsed.price);
+      saveTransaction(text, parsed);
+    } else {
+      showStatus('ዋጋ አልተሰማም። ዋጋ ይጥቀሱ። (Say the price)', 'error');
+    }
 
   } catch (err) {
     document.getElementById('ai-thinking').style.display = 'none';
