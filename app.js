@@ -27,7 +27,7 @@ window.addEventListener('load', () => {
 
 
 
-── MIC CLICK ─────────────────────────────────────────────
+// ── MIC CLICK ─────────────────────────────────────────────
 async function handleMicClick() {
   console.log('🎤 Mic clicked, isRecording:', isRecording);
 
