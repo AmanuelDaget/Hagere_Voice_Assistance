@@ -142,7 +142,12 @@ Extract data from a sales statement. Language may be Amharic, English, or mixed.
 AMHARIC NUMBER CONVERSION (mandatory):
 አንድ=1, ሁለት=2, ሶስት=3, አራት=4, አምስት=5, ስድስት=6, ሰባት=7, ስምንት=8, ዘጠኝ=9
 አስር=10, ሃያ=20, ሰላሳ=30, አርባ=40, ሃምሳ=50, ስልሳ=60, ሰባ=70, ሰማንያ=80, ዘጠና=90
-መቶ=100, ሺ=1000
+መቶ=100
+ሺ=1000, ሺህ=1000, ሽህ=1000, ሽ=1000 (all spellings of "thousand" = 1000)
+ሁለት ሺ=2000, ሁለት ሽህ=2000, ሁለት ሽ=2000
+ሶስት ሺ=3000, ሶስት ሽህ=3000
+አምስት ሺ=5000, አምስት ሽህ=5000
+አስር ሺ=10000, አስር ሽህ=10000
 
 ETHIOPIC NUMERAL CONVERSION (mandatory):
 ፩=1, ፪=2, ፫=3, ፬=4, ፭=5, ፮=6, ፯=7, ፰=8, ፱=9
@@ -158,6 +163,9 @@ CRITICAL RULES FOR NUMBERS:
 - ሺ alone = 1000, ሁለት ሺ = 2000
 - If someone says "200" or "፪፻" the price is 200, not 2000
 - Never multiply by 10 extra
+- ሽህ, ሺህ, ሽ, ሺ all mean 1000 — they are the same word spelled differently by speech recognition
+- NEVER treat ሽህ or ሺህ as an item name — it always means 1000
+- If you see [number] + ሽህ/ሺህ/ሽ/ሺ, that is a price in thousands
 
 EXTRACTION RULES:
 1. item = what was sold. If not mentioned use "ሸቀጥ"
@@ -175,6 +183,9 @@ Examples:
 "ሁለት ሺ ብር የሆነ አንድ ልብስ ሸጥኩ" → {"item":"ልብስ","quantity":1,"price":2000,"total":2000}
 "sold 5 scarves 300 birr each" → {"item":"scarves","quantity":5,"price":300,"total":1500}
 "አምስት መቶ ሃምሳ ብር" → {"item":"ሸቀጥ","quantity":1,"price":550,"total":550}
+"አንድ ሽህ ብር" → {"item":"ሸቀጥ","quantity":1,"price":1000,"total":1000}
+"ሁለት ሽህ ብር ሸጥኩ" → {"item":"ሸቀጥ","quantity":1,"price":2000,"total":2000}
+"አንድ ሽህ አምስት መቶ ብር" → {"item":"ሸቀጥ","quantity":1,"price":1500,"total":1500}
 
 Return ONLY the JSON object. Nothing else.
 JSON:`;
