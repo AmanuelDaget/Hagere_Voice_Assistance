@@ -132,7 +132,7 @@ async function extractTransaction(amharicText) {
 
     const data = await response.json();
     const raw = data.choices[0].message.content.trim();
-    console.log('🤖 Groq raw:', raw);
+    console.log('🤖 Groq raw :', raw);
     console.log('📝 Input text was:', text);
     
     // Clean any accidental markdown
