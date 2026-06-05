@@ -1,14 +1,13 @@
 const GROQ_API_KEY = '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';
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_WHISPER_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
 
 let isRecording = false;
-let mediaRecorder = null;
-let audioChunks = [];
+let recognition = null;
 let transactions = JSON.parse(localStorage.getItem('hv_transactions') || '[]');
 
+// ── INIT ──────────────────────────────────────────────────
 window.addEventListener('load', () => {
-  console.log('✅ Hagere Voice v5.0');
+  console.log('✅ app.js loaded fresh version 3.0');
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js')
@@ -23,214 +22,174 @@ window.addEventListener('load', () => {
   renderSummary();
 });
 
-// ── MIC: AUTO-STOPS AFTER SILENCE ─────────────────────────
+// ── MIC CLICK ─────────────────────────────────────────────
 async function handleMicClick() {
+  console.log('🎤 Mic clicked, isRecording:', isRecording);
+
   if (isRecording) {
-    stopRecording();
+    recognition && recognition.stop();
     return;
   }
-  await startRecording();
-}
 
-async function startRecording() {
   clearInput();
-  console.log('🎤 Starting...');
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    console.log('✅ Mic OK');
-    audioChunks = [];
-
-    const mimeType = getSupportedMimeType();
-    mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
-
-    mediaRecorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) audioChunks.push(e.data);
-    };
-
-    mediaRecorder.onstop = async () => {
-      stream.getTracks().forEach(t => t.stop());
-      const blob = new Blob(audioChunks, { type: mimeType || 'audio/webm' });
-      console.log('🎵 Blob size:', blob.size);
-
-      if (blob.size < 500) {
-        showStatus('ምንም አልተሰማም። እንደገና ይሞክሩ።', 'error');
-        return;
-      }
-      await transcribeAudio(blob, mimeType);
-    };
-
-    // AUTO-STOP after 8 seconds
-    mediaRecorder.start(100);
-    isRecording = true;
-    setMicState('recording');
-    showStatus('እያዳመጥኩ ነው... (8 ሰከንድ)', 'listening');
-
-    setTimeout(() => {
-      if (isRecording) {
-        console.log('⏰ Auto-stopping after 8s');
-        stopRecording();
-      }
-    }, 8000);
-
+    stream.getTracks().forEach(t => t.stop());
+    console.log('✅ Mic permission OK');
   } catch (err) {
-    console.error('❌ Mic error:', err.name, err.message);
-    isRecording = false;
-    setMicState('idle');
-
-    if (err.name === 'NotAllowedError') {
-      showStatus('ማይክሮፎን ፈቃድ ያስፈልጋል!', 'error');
-    } else if (err.name === 'NotFoundError') {
-      showStatus('ማይክሮፎን አልተገኘም።', 'error');
-    } else {
-      showStatus('Error: ' + err.message, 'error');
-    }
+    console.error('❌ Mic denied:', err);
+    showStatus('ማይክሮፎን ፈቃድ ያስፈልጋል!', 'error');
+    return;
   }
+
+  startRecognition();
 }
 
-function stopRecording() {
-  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-    mediaRecorder.stop();
-  }
-  isRecording = false;
-  setMicState('idle');
-  showStatus('እየተነተነ ነው...', 'processing');
-}
-
-function getSupportedMimeType() {
-  const types = [
-    'audio/webm;codecs=opus',
-    'audio/webm',
-    'audio/ogg;codecs=opus',
-    'audio/ogg',
-    'audio/mp4'
-  ];
-  for (const t of types) {
-    if (MediaRecorder.isTypeSupported(t)) return t;
-  }
-  return null;
-}
-
-// ── WHISPER ───────────────────────────────────────────────
-async function transcribeAudio(blob, mimeType) {
-  console.log('📡 Sending to Whisper...');
-  document.getElementById('ai-thinking').style.display = 'flex';
-
-  const ext = mimeType
-    ? (mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'mp4' : 'webm')
-    : 'webm';
-
-  const formData = new FormData();
-  formData.append('file', blob, `recording.${ext}`);
-  formData.append('model', 'whisper-large-v3');
-  formData.append('language', 'am');
-  formData.append('response_format', 'json');
-
-  try {
-    const res = await fetch(GROQ_WHISPER_URL, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` },
-      body: formData
-    });
-
-    console.log('📡 Whisper status:', res.status);
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      console.error('❌ Whisper error:', JSON.stringify(err));
-
-      // FALLBACK to Web Speech API if Whisper fails
-      console.log('🔄 Falling back to Web Speech API...');
-      document.getElementById('ai-thinking').style.display = 'none';
-      useSpeechRecognitionFallback();
-      return;
-    }
-
-    const data = await res.json();
-    const transcript = data.text && data.text.trim();
-    console.log('📝 Whisper transcript:', transcript);
-
-    if (!transcript) {
-      showStatus('ምንም አልተሰማም። እንደገና ይሞክሩ።', 'error');
-      document.getElementById('ai-thinking').style.display = 'none';
-      return;
-    }
-
-    document.getElementById('transcription').textContent = transcript;
-    await extractTransaction(transcript);
-
-  } catch (err) {
-    console.error('❌ Whisper failed:', err);
-    document.getElementById('ai-thinking').style.display = 'none';
-    showStatus('Network error. Try again.', 'error');
-  }
-}
-
-// ── FALLBACK: WEB SPEECH API (Chrome only) ────────────────
-function useSpeechRecognitionFallback() {
+// ── SPEECH RECOGNITION ────────────────────────────────────
+function startRecognition() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
     showStatus('Chrome browser ይጠቀሙ።', 'error');
     return;
   }
 
-  showStatus('Chrome speech እየሞከርኩ...', 'processing');
-  const rec = new SR();
-  rec.lang = 'am-ET';
-  rec.continuous = false;
-  rec.interimResults = false;
+  recognition = new SR();
+  recognition.continuous = false;
+  recognition.interimResults = true;
+  recognition.maxAlternatives = 3;
 
-  rec.onresult = (e) => {
-    const text = e.results[0][0].transcript;
-    console.log('📝 Fallback transcript:', text);
-    document.getElementById('transcription').textContent = text;
-    extractTransaction(text);
+  // Try Amharic first
+  recognition.lang = 'am-ET';
+
+  recognition.onstart = () => {
+    console.log('🎙 Listening...');
+    isRecording = true;
+    setMicState('recording');
+    showStatus('እያዳመጥኩ ነው...', 'listening');
   };
 
-  rec.onerror = (e) => {
-    console.error('❌ Fallback error:', e.error);
-    showStatus('Speech error: ' + e.error, 'error');
+  recognition.onresult = (event) => {
+    let interim = '';
+    let final = '';
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const t = event.results[i][0].transcript;
+      event.results[i].isFinal ? (final += t) : (interim += t);
+    }
+    const display = final || interim;
+    console.log('📝 Heard:', display);
+    document.getElementById('transcription').textContent = display;
+    if (final) document.getElementById('transcription').dataset.final = final;
   };
 
-  rec.start();
+  recognition.onerror = (event) => {
+    console.error('❌ Speech error:', event.error);
+    isRecording = false;
+    setMicState('idle');
+
+    if (event.error === 'language-not-supported') {
+      console.log('🔄 Amharic not supported, retrying without lang...');
+      recognition.lang = '';
+      setTimeout(() => {
+        try { recognition.start(); } catch(e) {}
+      }, 300);
+      return;
+    }
+
+    const msgs = {
+      'not-allowed': 'ማይክሮፎን ፈቃድ ያስፈልጋል።',
+      'no-speech': 'ምንም አልተሰማም። እንደገና ይሞክሩ።',
+      'network': 'Network error. Check internet.',
+      'audio-capture': 'Microphone not found.'
+    };
+    showStatus(msgs[event.error] || 'Error: ' + event.error, 'error');
+  };
+
+  recognition.onend = () => {
+    console.log('⏹ Recognition ended');
+    isRecording = false;
+    setMicState('idle');
+
+    const finalText = document.getElementById('transcription').dataset.final
+      || document.getElementById('transcription').textContent;
+
+    console.log('📄 Final text to process:', finalText);
+
+    if (finalText && finalText.trim().length > 0) {
+      extractTransaction(finalText.trim());
+    } else {
+      showStatus('ምንም አልተሰማም። እንደገና ይሞክሩ።', 'error');
+    }
+  };
+
+  try {
+    recognition.start();
+  } catch (e) {
+    console.error('Failed to start:', e);
+    showStatus('Failed to start mic: ' + e.message, 'error');
+  }
 }
 
 // ── GROQ EXTRACTION ───────────────────────────────────────
 async function extractTransaction(text) {
-  console.log('🤖 Extracting:', text);
+  console.log('🤖 Sending to Groq:', text);
+  showStatus('AI እየተነተነ ነው...', 'processing');
   document.getElementById('ai-thinking').style.display = 'flex';
 
   const prompt = `You are a sales data extractor for Ethiopian artisans in Gondar.
 Extract data from a sales statement. Language may be Amharic, English, or mixed.
 
-AMHARIC NUMBER CONVERSION:
+AMHARIC NUMBER CONVERSION (mandatory):
 አንድ=1, ሁለት=2, ሶስት=3, አራት=4, አምስት=5, ስድስት=6, ሰባት=7, ስምንት=8, ዘጠኝ=9
 አስር=10, ሃያ=20, ሰላሳ=30, አርባ=40, ሃምሳ=50, ስልሳ=60, ሰባ=70, ሰማንያ=80, ዘጠና=90
 መቶ=100
-ሺ=1000, ሺህ=1000, ሽህ=1000, ሽ=1000 (all mean thousand)
-ሁለት ሺህ=2000, ሶስት ሺህ=3000, አምስት ሺህ=5000
+ሺ=1000, ሺህ=1000, ሽህ=1000, ሽ=1000 (all spellings of "thousand" = 1000)
+ሁለት ሺ=2000, ሁለት ሽህ=2000, ሁለት ሽ=2000
+ሶስት ሺ=3000, ሶስት ሽህ=3000
+አምስት ሺ=5000, አምስት ሽህ=5000
+አስር ሺ=10000, አስር ሽህ=10000
 
-ETHIOPIC NUMERALS:
-፩=1,፪=2,፫=3,፬=4,፭=5,፮=6,፯=7,፰=8,፱=9
-፲=10,፳=20,፴=30,፵=40,፶=50,፷=60,፸=70,፹=80,፺=90
-፻=100,፪፻=200,፫፻=300,፬፻=400,፭፻=500,፮፻=600,፯፻=700,፰፻=800,፱፻=900
+ETHIOPIC NUMERAL CONVERSION (mandatory):
+፩=1, ፪=2, ፫=3, ፬=4, ፭=5, ፮=6, ፯=7, ፰=8, ፱=9
+፲=10, ፳=20, ፴=30, ፵=40, ፶=50, ፷=60, ፸=70, ፹=80, ፺=90
+፻=100, ፼=10000
+፪፻=200, ፫፻=300, ፬፻=400, ፭፻=500, ፮፻=600, ፯፻=700, ፰፻=800, ፱፻=900
+፲፻=1000, ፪፻፩=201, ፩ሺ፭፻=1500
 
-RULES:
-- ሽህ/ሺህ/ሽ/ሺ = 1000, NEVER an item name
-- ፪፻=200 NOT 2000
-- No item mentioned → use "ሸቀጥ"
-- No quantity → use 1
-- Number near ብር = price
+CRITICAL RULES FOR NUMBERS:
+- ፪፻ means 2×100 = 200 NOT 2000
+- ፫፻ means 3×100 = 300 NOT 3000
+- መቶ alone = 100, ሁለት መቶ = 200, ሶስት መቶ = 300
+- ሺ alone = 1000, ሁለት ሺ = 2000
+- If someone says "200" or "፪፻" the price is 200, not 2000
+- Never multiply by 10 extra
+- ሽህ, ሺህ, ሽ, ሺ all mean 1000 — they are the same word spelled differently by speech recognition
+- NEVER treat ሽህ or ሺህ as an item name — it always means 1000
+- If you see [number] + ሽህ/ሺህ/ሽ/ሺ, that is a price in thousands
 
-EXAMPLES:
-"አንድ ሽህ ብር" → {"item":"ሸቀጥ","quantity":1,"price":1000,"total":1000}
-"ዛሬ 3 ቀሚስ በ 1500 ብር ሸጥኩ" → {"item":"ቀሚስ","quantity":3,"price":1500,"total":4500}
-"ሶስት መቶ ብር ሸጥኩ" → {"item":"ሸቀጥ","quantity":1,"price":300,"total":300}
-"ሁለት ሽህ ብር" → {"item":"ሸቀጥ","quantity":1,"price":2000,"total":2000}
-"500 birr 2 scarves" → {"item":"scarves","quantity":2,"price":500,"total":1000}
+EXTRACTION RULES:
+1. item = what was sold. If not mentioned use "ሸቀጥ"
+2. quantity = how many. If not mentioned use 1
+3. price = price per unit in Birr. Look for number before or after "ብር"
+4. total = quantity x price
+
+IMPORTANT: Always return JSON even if guessing. Never return nulls for price if any number exists.
 
 Statement: "${text}"
-Return ONLY JSON:`;
+
+Examples:
+"ዛሬ ሶስት መቶ ብር ሸጥኩ" → {"item":"ሸቀጥ","quantity":1,"price":300,"total":300}
+"ዛሬ 3 ቀሚስ በ 1500 ብር ሸጥኩ" → {"item":"ቀሚስ","quantity":3,"price":1500,"total":4500}
+"ሁለት ሺ ብር የሆነ አንድ ልብስ ሸጥኩ" → {"item":"ልብስ","quantity":1,"price":2000,"total":2000}
+"sold 5 scarves 300 birr each" → {"item":"scarves","quantity":5,"price":300,"total":1500}
+"አምስት መቶ ሃምሳ ብር" → {"item":"ሸቀጥ","quantity":1,"price":550,"total":550}
+"አንድ ሽህ ብር" → {"item":"ሸቀጥ","quantity":1,"price":1000,"total":1000}
+"ሁለት ሽህ ብር ሸጥኩ" → {"item":"ሸቀጥ","quantity":1,"price":2000,"total":2000}
+"አንድ ሽህ አምስት መቶ ብር" → {"item":"ሸቀጥ","quantity":1,"price":1500,"total":1500}
+
+
+Return ONLY the JSON object. Nothing else.
+JSON:`;
 
   try {
     const res = await fetch(GROQ_URL, {
@@ -238,7 +197,8 @@ Return ONLY JSON:`;
       mode: 'cors',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${GROQ_API_KEY}`
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
+        'Accept': 'application/json'
       },
       body: JSON.stringify({
         model: 'llama-3.1-8b-instant',
@@ -248,45 +208,65 @@ Return ONLY JSON:`;
       })
     });
 
-    if (!res.ok) throw new Error('Groq ' + res.status);
+    console.log('📡 Groq status:', res.status);
+
+    if (!res.ok) {
+      const err = await res.json();
+      console.error('❌ Groq error:', JSON.stringify(err));
+      throw new Error('Groq ' + res.status);
+    }
 
     const data = await res.json();
     const raw = data.choices[0].message.content.trim();
-    console.log('🤖 Groq raw:', raw);
+    console.log('🤖 Groq raw response:', raw);
 
-    const cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
+    // Clean markdown if any
+    const cleaned = raw
+      .replace(/```json/gi, '')
+      .replace(/```/g, '')
+      .trim();
+
+    console.log('🧹 Cleaned:', cleaned);
+
     let parsed;
     try {
       parsed = JSON.parse(cleaned);
-    } catch (e) {
+    } catch (parseErr) {
+      console.error('❌ JSON parse failed:', parseErr, 'Raw was:', cleaned);
+      // Try to extract JSON from response
       const match = cleaned.match(/\{.*\}/s);
-      if (match) parsed = JSON.parse(match[0]);
-      else throw new Error('No JSON found');
+      if (match) {
+        parsed = JSON.parse(match[0]);
+      } else {
+        throw new Error('Could not parse JSON from: ' + cleaned);
+      }
     }
 
-    console.log('✅ Parsed:', parsed);
+    console.log('✅ Parsed result:', parsed);
     document.getElementById('ai-thinking').style.display = 'none';
 
+    // Save if we have at least a price
     if (parsed.price && parsed.price > 0) {
       parsed.quantity = parsed.quantity || 1;
       parsed.item = parsed.item || 'ሸቀጥ';
       parsed.total = parsed.total || (parsed.quantity * parsed.price);
       saveTransaction(text, parsed);
     } else {
-      showStatus('ዋጋ አልተሰማም። ዋጋ ጨምረው ይናገሩ።', 'error');
+      console.warn('⚠️ No price found in:', parsed);
+      showStatus('ዋጋ አልተሰማም። ዋጋ ጨምረው ይናገሩ። (Include the price)', 'error');
     }
 
   } catch (err) {
     document.getElementById('ai-thinking').style.display = 'none';
-    console.error('❌ Extract error:', err);
+    console.error('❌ Full error:', err);
+    showStatus('ስህተት ተፈጥሯል። Saved as pending.', 'error');
     saveRawTransaction(text);
-    showStatus('ስህተት። Saved as pending.', 'error');
   }
 }
 
 // ── SAVE ──────────────────────────────────────────────────
 function saveTransaction(originalText, parsed) {
-  const t = {
+  const transaction = {
     id: Date.now(),
     timestamp: new Date().toISOString(),
     date: new Date().toLocaleDateString('am-ET'),
@@ -297,9 +277,9 @@ function saveTransaction(originalText, parsed) {
     total: parsed.total,
     status: 'confirmed'
   };
-  transactions.unshift(t);
+  transactions.unshift(transaction);
   localStorage.setItem('hv_transactions', JSON.stringify(transactions));
-  console.log('💾 Saved:', t);
+  console.log('💾 Saved:', transaction);
   showStatus(`✓ ተመዝግቧል: ${parsed.quantity} ${parsed.item} = ${parsed.total.toLocaleString()} ብር`, 'success');
   renderLedger();
   renderSummary();
@@ -307,7 +287,7 @@ function saveTransaction(originalText, parsed) {
 }
 
 function saveRawTransaction(text) {
-  const t = {
+  const transaction = {
     id: Date.now(),
     timestamp: new Date().toISOString(),
     date: new Date().toLocaleDateString('am-ET'),
@@ -318,12 +298,12 @@ function saveRawTransaction(text) {
     total: 0,
     status: 'pending'
   };
-  transactions.unshift(t);
+  transactions.unshift(transaction);
   localStorage.setItem('hv_transactions', JSON.stringify(transactions));
   renderLedger();
 }
 
-// ── RENDER ────────────────────────────────────────────────
+// ── RENDER LEDGER ─────────────────────────────────────────
 function renderLedger() {
   const container = document.getElementById('ledger-list');
   if (transactions.length === 0) {
@@ -345,6 +325,7 @@ function renderLedger() {
   `).join('');
 }
 
+// ── RENDER SUMMARY ────────────────────────────────────────
 function renderSummary() {
   const today = new Date().toDateString();
   const todayTx = transactions.filter(t =>
@@ -352,6 +333,7 @@ function renderSummary() {
   );
   const todayTotal = todayTx.reduce((sum, t) => sum + (t.total || 0), 0);
   const todayCount = todayTx.length;
+
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const weekTx = transactions.filter(t =>
     new Date(t.timestamp) > weekAgo && t.status === 'confirmed'
@@ -363,11 +345,12 @@ function renderSummary() {
   document.getElementById('week-total').textContent = weekTotal.toLocaleString() + ' ብር';
 }
 
+// ── UI HELPERS ────────────────────────────────────────────
 function setMicState(state) {
   const btn = document.getElementById('mic-btn');
   const btnText = document.getElementById('mic-btn-text');
   btn.className = 'mic-btn ' + state;
-  btnText.textContent = state === 'recording' ? 'ለማቆም ይጫኑ' : 'ተናገሩ';
+  btnText.textContent = state === 'recording' ? 'እያዳመጥኩ...' : 'ተናገሩ';
   isRecording = state === 'recording';
 }
 
