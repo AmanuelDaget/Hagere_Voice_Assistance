@@ -85,31 +85,33 @@ async function extractTransaction(amharicText) {
   // "Processing..."
   document.getElementById('ai-thinking').style.display = 'block';
 
-  const prompt = `You are a business data extractor for Ethiopian small business owners.
-Extract sales transaction data from the following statement.
-The statement may be in Amharic, English, or a mix of both.
-The statement may be informal, incomplete, or have speech recognition errors.
+  const prompt = `You are a business data extractor for Ethiopian small business owners in Gondar.
+    Extract sales data from this statement. It may be in Amharic or English.
 
-Your job:
-- item: what was sold (keep original language/script)
-- quantity: how many were sold (integer, default to 1 if not mentioned)
-- price: price per unit in Birr (number)
-- total: quantity multiplied by price (number)
+    CRITICAL RULES:
+    - Convert Amharic written numbers to digits:
+      አንድ=1, ሁለት=2, ሶስት=3, አራት=4, አምስት=5, ስድስት=6, ሰባት=7, ስምንት=8, ዘጠኝ=9, አስር=10,
+      ሃያ=20, ሰላሳ=30, አርባ=40, ሃምሳ=50, ስልሳ=60, ሰባ=70, ሰማንያ=80, ዘጠና=90,
+      መቶ=100, ሁለት መቶ=200, ሶስት መቶ=300, አራት መቶ=400, አምስት መቶ=500,
+      ስድስት መቶ=600, ሰባት መቶ=700, ስምንት መቶ=800, ዘጠኝ መቶ=900,
+      ሺ=1000, ሁለት ሺ=2000, ሶስት ሺ=3000, አምስት ሺ=5000, አስር ሺ=10000
+    - Combinations: ሶስት መቶ ሃምሳ=350, አንድ ሺ አምስት መቶ=1500
+    - If no item is mentioned, set item to "ሸቀጥ" (goods)
+    - If no quantity mentioned, set quantity to 1
+    - The number before ብር is always the price
+    - ALWAYS return valid JSON even if some fields are guessed
 
-If quantity is not mentioned, assume 1.
-If price is not clear, look for any number in the statement.
-ALWAYS try your best to extract something — never return all nulls if there is any number in the statement.
-Return ONLY a JSON object. No explanation. No markdown. No extra text.
+    Statement: "${text}"
 
-Statement: "${text}"
+    Examples:
+    "ዛሬ ሶስት መቶ ብር ሸጥኩ" -> {"item":"ሸቀጥ","quantity":1,"price":300,"total":300}
+    "ዛሬ 3 ቀሚስ በ 1500 ብር ሸጥኩ" -> {"item":"ቀሚስ","quantity":3,"price":1500,"total":4500}
+    "አምስት መቶ ብር የሆነ ሁለት ልብስ" -> {"item":"ልብስ","quantity":2,"price":500,"total":1000}
+    "two dresses 800 birr" -> {"item":"dresses","quantity":2,"price":800,"total":1600}
+    "ሶስት ሺ ብር ሸጥኩ" -> {"item":"ሸቀጥ","quantity":1,"price":3000,"total":3000}
 
-Examples:
-"ዛሬ 3 ቀሚስ በ 1500 ብር ሸጥኩ" -> {"item":"ቀሚስ","quantity":3,"price":1500,"total":4500}
-"sold 2 scarves for 800 birr each" -> {"item":"scarves","quantity":2,"price":800,"total":1600}
-"አንድ ልብስ በ500" -> {"item":"ልብስ","quantity":1,"price":500,"total":500}
-"5 bags 200" -> {"item":"bags","quantity":5,"price":200,"total":1000}
-
-JSON output:`;
+    Return ONLY JSON. No explanation. No markdown.
+    JSON:`;
 
   try {
     const response = await fetch(GROQ_URL, {
@@ -137,15 +139,13 @@ JSON output:`;
 
     document.getElementById('ai-thinking').style.display = 'none';
 
-    if (parsed.item || parsed.price) {
-      // Fill defaults for missing fields
+    if (parsed.price && parsed.price > 0) {
       parsed.quantity = parsed.quantity || 1;
-      parsed.price = parsed.price || 0;
-      parsed.item = parsed.item || text;
+      parsed.item = parsed.item || 'ሸቀጥ';
       parsed.total = parsed.total || (parsed.quantity * parsed.price);
       saveTransaction(text, parsed);
     } else {
-      showStatus('ዋጋ ወይም ዕቃ አልተሰማም። እንደገና ይሞክሩ። (Say item and price)', 'error');
+      showStatus('ዋጋ አልተሰማም። ዋጋ ይጥቀሱ። (Say the price)', 'error');
     }
 
   } catch (err) {
