@@ -1,5 +1,8 @@
 const GROQ_API_KEY = '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';
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_WHISPER_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
+let mediaRecorder = null;
+let audioChunks = [];
 
 let isRecording = false;
 let recognition = null;
