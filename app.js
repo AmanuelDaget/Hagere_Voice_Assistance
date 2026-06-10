@@ -158,6 +158,8 @@ CRITICAL RULES:
 5. If no item mentioned → item = "ሸቀጥ"
 6. If no quantity mentioned → quantity = 1
 7. ALWAYS return JSON. Never return all nulls if any number exists.
+8. The item field must ONLY contain the product name in plain text (e.g. ጫማ, ልብስ, ቀሚስ). NEVER put numbers or Ethiopic numerals in the item field.
+9. If the response would be longer than 60 characters, something is wrong — stop and return simple JSON only.
 
 OUTPUT FORMAT: {"item":"...","quantity":N,"price":N,"total":N}
 
