@@ -1,8 +1,5 @@
 const GROQ_API_KEY = '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';
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_WHISPER_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
-let mediaRecorder = null;
-let audioChunks = [];
 
 let isRecording = false;
 let recognition = null;
@@ -10,7 +7,7 @@ let transactions = JSON.parse(localStorage.getItem('hv_transactions') || '[]');
 
 // ── INIT ──────────────────────────────────────────────────
 window.addEventListener('load', () => {
-  console.log('✅ app.js loaded fresh version 3.0');
+  console.log('✅ app.js final version 4.0');
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js')
@@ -24,8 +21,6 @@ window.addEventListener('load', () => {
   renderLedger();
   renderSummary();
 });
-
-
 
 // ── MIC CLICK ─────────────────────────────────────────────
 async function handleMicClick() {
@@ -63,8 +58,6 @@ function startRecognition() {
   recognition.continuous = false;
   recognition.interimResults = true;
   recognition.maxAlternatives = 3;
-
-  // Try Amharic first
   recognition.lang = 'am-ET';
 
   recognition.onstart = () => {
@@ -93,18 +86,16 @@ function startRecognition() {
     setMicState('idle');
 
     if (event.error === 'language-not-supported') {
-      console.log('🔄 Amharic not supported, retrying without lang...');
+      console.log('🔄 Retrying without lang tag...');
       recognition.lang = '';
-      setTimeout(() => {
-        try { recognition.start(); } catch(e) {}
-      }, 300);
+      setTimeout(() => { try { recognition.start(); } catch(e) {} }, 300);
       return;
     }
 
     const msgs = {
-      'not-allowed': 'ማይክሮፎን ፈቃድ ያስፈልጋል።',
-      'no-speech': 'ምንም አልተሰማም። እንደገና ይሞክሩ።',
-      'network': 'Network error. Check internet.',
+      'not-allowed':   'ማይክሮፎን ፈቃድ ያስፈልጋል።',
+      'no-speech':     'ምንም አልተሰማም። እንደገና ይሞክሩ።',
+      'network':       'Network error. Check internet.',
       'audio-capture': 'Microphone not found.'
     };
     showStatus(msgs[event.error] || 'Error: ' + event.error, 'error');
@@ -144,56 +135,52 @@ async function extractTransaction(text) {
   const prompt = `You are a sales data extractor for Ethiopian artisans in Gondar.
 Extract data from a sales statement. Language may be Amharic, English, or mixed.
 
-AMHARIC NUMBER CONVERSION (mandatory):
+AMHARIC WORD NUMBERS:
 አንድ=1, ሁለት=2, ሶስት=3, አራት=4, አምስት=5, ስድስት=6, ሰባት=7, ስምንት=8, ዘጠኝ=9
 አስር=10, ሃያ=20, ሰላሳ=30, አርባ=40, ሃምሳ=50, ስልሳ=60, ሰባ=70, ሰማንያ=80, ዘጠና=90
-መቶ=100
-ሺ=1000, ሺህ=1000, ሽህ=1000, ሽ=1000 (all spellings of "thousand" = 1000)
+መቶ=100, ሁለት መቶ=200, ሶስት መቶ=300, አራት መቶ=400, አምስት መቶ=500
+ስድስት መቶ=600, ሰባት መቶ=700, ስምንት መቶ=800, ዘጠኝ መቶ=900
+ሺ=1000, ሺህ=1000, ሽህ=1000, ሽ=1000 (ALL mean one thousand = 1000)
 ሁለት ሺ=2000, ሁለት ሽህ=2000, ሁለት ሽ=2000
-ሶስት ሺ=3000, ሶስት ሽህ=3000
-አምስት ሺ=5000, አምስት ሽህ=5000
-አስር ሺ=10000, አስር ሽህ=10000
+ሶስት ሺ=3000, ሶስት ሽህ=3000, ሶስት ሽ=3000
+አራት ሺ=4000, አምስት ሺ=5000, አስር ሺ=10000
+አንድ ሺ አምስት መቶ=1500, አንድ ሽህ አምስት መቶ=1500
+ሁለት ሺ አምስት መቶ=2500, ሶስት ሺ ሁለት መቶ=3200
 
-ETHIOPIC NUMERAL CONVERSION (mandatory):
+ETHIOPIC NUMERALS:
 ፩=1, ፪=2, ፫=3, ፬=4, ፭=5, ፮=6, ፯=7, ፰=8, ፱=9
 ፲=10, ፳=20, ፴=30, ፵=40, ፶=50, ፷=60, ፸=70, ፹=80, ፺=90
-፻=100, ፼=10000
-፪፻=200, ፫፻=300, ፬፻=400, ፭፻=500, ፮፻=600, ፯፻=700, ፰፻=800, ፱፻=900
-፲፻=1000, ፪፻፩=201, ፩ሺ፭፻=1500
+፻=100, ፪፻=200, ፫፻=300, ፬፻=400, ፭፻=500, ፮፻=600, ፯፻=700, ፰፻=800, ፱፻=900
+፲፻=1000, ፪፻፩=201
 
-CRITICAL RULES FOR NUMBERS:
-- ፪፻ means 2×100 = 200 NOT 2000
-- ፫፻ means 3×100 = 300 NOT 3000
-- መቶ alone = 100, ሁለት መቶ = 200, ሶስት መቶ = 300
-- ሺ alone = 1000, ሁለት ሺ = 2000
-- If someone says "200" or "፪፻" the price is 200, not 2000
-- Never multiply by 10 extra
-- ሽህ, ሺህ, ሽ, ሺ all mean 1000 — they are the same word spelled differently by speech recognition
-- NEVER treat ሽህ or ሺህ as an item name — it always means 1000
-- If you see [number] + ሽህ/ሺህ/ሽ/ሺ, that is a price in thousands
+CRITICAL RULES:
+1. ሽህ, ሺህ, ሽ, ሺ all mean 1000. NEVER treat them as item names.
+2. If you see [word] + ሽህ/ሺህ/ሽ/ሺ it is a number e.g. አንድ ሽህ = 1000, ሁለት ሽህ = 2000
+3. ፪፻ = 200 NOT 2000. መቶ=100, not 1000.
+4. Number before or after ብር is always the PRICE
+5. If no item mentioned → item = "ሸቀጥ"
+6. If no quantity mentioned → quantity = 1
+7. ALWAYS return JSON. Never return all nulls if any number exists.
 
-EXTRACTION RULES:
-1. item = what was sold. If not mentioned use "ሸቀጥ"
-2. quantity = how many. If not mentioned use 1
-3. price = price per unit in Birr. Look for number before or after "ብር"
-4. total = quantity x price
+OUTPUT FORMAT: {"item":"...","quantity":N,"price":N,"total":N}
 
-IMPORTANT: Always return JSON even if guessing. Never return nulls for price if any number exists.
-
-Statement: "${text}"
-
-Examples:
-"ዛሬ ሶስት መቶ ብር ሸጥኩ" → {"item":"ሸቀጥ","quantity":1,"price":300,"total":300}
-"ዛሬ 3 ቀሚስ በ 1500 ብር ሸጥኩ" → {"item":"ቀሚስ","quantity":3,"price":1500,"total":4500}
-"ሁለት ሺ ብር የሆነ አንድ ልብስ ሸጥኩ" → {"item":"ልብስ","quantity":1,"price":2000,"total":2000}
-"sold 5 scarves 300 birr each" → {"item":"scarves","quantity":5,"price":300,"total":1500}
-"አምስት መቶ ሃምሳ ብር" → {"item":"ሸቀጥ","quantity":1,"price":550,"total":550}
+EXAMPLES:
 "አንድ ሽህ ብር" → {"item":"ሸቀጥ","quantity":1,"price":1000,"total":1000}
+"አንድ ሺህ ብር" → {"item":"ሸቀጥ","quantity":1,"price":1000,"total":1000}
 "ሁለት ሽህ ብር ሸጥኩ" → {"item":"ሸቀጥ","quantity":1,"price":2000,"total":2000}
 "አንድ ሽህ አምስት መቶ ብር" → {"item":"ሸቀጥ","quantity":1,"price":1500,"total":1500}
+"ዛሬ ሶስት መቶ ብር ሸጥኩ" → {"item":"ሸቀጥ","quantity":1,"price":300,"total":300}
+"ዛሬ 3 ቀሚስ በ 1500 ብር ሸጥኩ" → {"item":"ቀሚስ","quantity":3,"price":1500,"total":4500}
+"ሁለት ልብስ በ አምስት መቶ ብር" → {"item":"ልብስ","quantity":2,"price":500,"total":1000}
+"አምስት ሻርፕ በ ሁለት መቶ ብር" → {"item":"ሻርፕ","quantity":5,"price":200,"total":1000}
+"፪፻ ብር ሸጥኩ" → {"item":"ሸቀጥ","quantity":1,"price":200,"total":200}
+"፫፻ ብር" → {"item":"ሸቀጥ","quantity":1,"price":300,"total":300}
+"sold 2 dresses 800 birr each" → {"item":"dresses","quantity":2,"price":800,"total":1600}
+"አንድ ሽህ በርሸጡ" → {"item":"ሸቀጥ","quantity":1,"price":1000,"total":1000}
+"አንድ ሺህ በርሸጡ" → {"item":"ሸቀጥ","quantity":1,"price":1000,"total":1000}
 
-
-Return ONLY the JSON object. Nothing else.
+Statement: "${text}"
+Return ONLY the JSON. No explanation. No markdown.
 JSON:`;
 
   try {
@@ -225,40 +212,32 @@ JSON:`;
     const raw = data.choices[0].message.content.trim();
     console.log('🤖 Groq raw response:', raw);
 
-    // Clean markdown if any
-    const cleaned = raw
-      .replace(/```json/gi, '')
-      .replace(/```/g, '')
-      .trim();
-
+    const cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
     console.log('🧹 Cleaned:', cleaned);
 
     let parsed;
     try {
       parsed = JSON.parse(cleaned);
     } catch (parseErr) {
-      console.error('❌ JSON parse failed:', parseErr, 'Raw was:', cleaned);
-      // Try to extract JSON from response
       const match = cleaned.match(/\{.*\}/s);
       if (match) {
         parsed = JSON.parse(match[0]);
       } else {
-        throw new Error('Could not parse JSON from: ' + cleaned);
+        throw new Error('JSON parse failed: ' + cleaned);
       }
     }
 
     console.log('✅ Parsed result:', parsed);
     document.getElementById('ai-thinking').style.display = 'none';
 
-    // Save if we have at least a price
     if (parsed.price && parsed.price > 0) {
       parsed.quantity = parsed.quantity || 1;
       parsed.item = parsed.item || 'ሸቀጥ';
       parsed.total = parsed.total || (parsed.quantity * parsed.price);
       saveTransaction(text, parsed);
     } else {
-      console.warn('⚠️ No price found in:', parsed);
-      showStatus('ዋጋ አልተሰማም። ዋጋ ጨምረው ይናገሩ። (Include the price)', 'error');
+      console.warn('⚠️ No price found:', parsed);
+      showStatus('ዋጋ አልተሰማም። ዋጋ ጨምረው ይናገሩ።', 'error');
     }
 
   } catch (err) {
